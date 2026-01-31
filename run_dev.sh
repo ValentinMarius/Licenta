@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 
-# /Users/vtm/Documents/treespora/run_dev.sh
+# run_dev.sh
 # Boots the FastAPI backend plus a selected Flutter platform with the right defines.
 # Exists so devs can run the full stack locally with one command.
 # RELEVANT FILES:backend/app/main.py,backend/.env,lib/app/core/config/app_config.dart,lib/main.dart
 
 set -e
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Always prefer the repo-local venv so copied folders don't accidentally keep using
+# an old venv from another path (which leads to missing deps at runtime).
+PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="python3"
+fi
 
 ### ==========================
 ### CONFIGURARE GLOBALĂ
@@ -52,7 +61,7 @@ fi
 
 echo "=== Pornesc backend (FastAPI + DeepSeek) ==="
 cd "$BACKEND_DIR"
-python3 -m uvicorn $BACKEND_APP --reload --host 0.0.0.0 &
+$PYTHON_BIN -m uvicorn $BACKEND_APP --reload --host 0.0.0.0 &
 BACKEND_PID=$!
 cd ..
 
