@@ -7,6 +7,10 @@ import 'package:flutter/material.dart';
 
 import 'package:treespora/app/features/tasks/data/task_api_client.dart';
 import 'package:treespora/app/features/tasks/models/daily_task.dart';
+import 'package:treespora/app/features/tasks/presentation/widgets/task_section_header.dart';
+import 'package:treespora/app/features/tasks/presentation/widgets/task_section_shell.dart';
+import 'package:treespora/app/features/tasks/presentation/widgets/task_tile.dart';
+import 'package:treespora/app/features/tasks/state/task_progress_store.dart';
 
 class TaskSection extends StatefulWidget {
   const TaskSection({
@@ -27,6 +31,7 @@ class TaskSection extends StatefulWidget {
 }
 
 class _TaskSectionState extends State<TaskSection> {
+  final TaskProgressStore _progressStore = TaskProgressStore.instance;
   Future<List<DailyTask>>? _tasksFuture;
   bool _isRegenerating = false;
 
@@ -111,14 +116,14 @@ class _TaskSectionState extends State<TaskSection> {
   @override
   Widget build(BuildContext context) {
     if (widget.isPlanLoading) {
-      return const _TaskSectionShell(
-        child: _LoadingRow(label: 'Preparing your plan...'),
+      return const TaskSectionShell(
+        child: TaskSectionLoadingRow(label: 'Preparing your plan...'),
       );
     }
 
     final client = widget.apiClient;
     if (client == null || !client.isConfigured) {
-      return const _TaskSectionShell(
+      return const TaskSectionShell(
         child: Padding(
           padding: EdgeInsets.all(12),
           child: Text('Configure API_BASE_URL to load AI tasks.'),
@@ -132,7 +137,7 @@ class _TaskSectionState extends State<TaskSection> {
       future: future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const _TaskSectionShell(
+          return const TaskSectionShell(
             child: SizedBox(
               height: 120,
               child: Center(child: CircularProgressIndicator()),
@@ -143,13 +148,15 @@ class _TaskSectionState extends State<TaskSection> {
         if (snapshot.hasError) {
           final error = snapshot.error;
           if (error is TaskPlanPendingException) {
-            return _TaskSectionShell(
+            return TaskSectionShell(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _TaskSectionHeader(dayIndex: widget.dayIndex),
+                  TaskSectionHeader(dayIndex: widget.dayIndex),
                   const SizedBox(height: 12),
-                  const _LoadingRow(label: 'Generating tasks for this plan...'),
+                  const TaskSectionLoadingRow(
+                    label: 'Generating tasks for this plan...',
+                  ),
                   const SizedBox(height: 12),
                   SizedBox(
                     height: 40,
@@ -168,11 +175,11 @@ class _TaskSectionState extends State<TaskSection> {
               ),
             );
           }
-          return _TaskSectionShell(
+          return TaskSectionShell(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _TaskSectionHeader(dayIndex: widget.dayIndex),
+                TaskSectionHeader(dayIndex: widget.dayIndex),
                 const SizedBox(height: 12),
                 Text(
                   'Could not load tasks for this day.',
@@ -186,12 +193,13 @@ class _TaskSectionState extends State<TaskSection> {
         }
 
         final tasks = snapshot.data ?? const [];
+        _registerTasks(tasks);
         if (tasks.isEmpty) {
-          return _TaskSectionShell(
+          return TaskSectionShell(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _TaskSectionHeader(dayIndex: widget.dayIndex),
+                TaskSectionHeader(dayIndex: widget.dayIndex),
                 const SizedBox(height: 12),
                 Text(
                   'No tasks generated for this day yet.',
@@ -216,150 +224,68 @@ class _TaskSectionState extends State<TaskSection> {
           );
         }
 
-        return _TaskSectionShell(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _TaskSectionHeader(dayIndex: widget.dayIndex),
-              const SizedBox(height: 12),
-              ...tasks.map((task) => _TaskTile(task: task)),
-            ],
+        return TaskSectionShell(
+          child: AnimatedBuilder(
+            animation: _progressStore,
+            builder: (context, child) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TaskSectionHeader(dayIndex: widget.dayIndex),
+                  const SizedBox(height: 12),
+                  for (var i = 0; i < tasks.length; i++)
+                    TaskTile(
+                      task: tasks[i],
+                      status: _progressStore.statusFor(
+                        goalId: widget.goalId,
+                        dayIndex: widget.dayIndex,
+                        taskKey: _taskKey(tasks[i], i),
+                      ),
+                      onStatusChanged: (status) {
+                        _progressStore.setStatus(
+                          goalId: widget.goalId,
+                          dayIndex: widget.dayIndex,
+                          taskKey: _taskKey(tasks[i], i),
+                          status: status,
+                        );
+                      },
+                    ),
+                ],
+              );
+            },
           ),
         );
       },
     );
   }
-}
 
-class _TaskSectionShell extends StatelessWidget {
-  const _TaskSectionShell({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(top: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: scheme.outlineVariant.withOpacity(0.5)),
-      ),
-      child: child,
+  void _registerTasks(List<DailyTask> tasks) {
+    if (tasks.isEmpty) return;
+    final keys = <String>[];
+    final completed = <String>{};
+    for (var i = 0; i < tasks.length; i++) {
+      final key = _taskKey(tasks[i], i);
+      keys.add(key);
+      if (tasks[i].completedAt != null) {
+        completed.add(key);
+      }
+    }
+    _progressStore.registerTasksForDay(
+      goalId: widget.goalId,
+      dayIndex: widget.dayIndex,
+      taskKeys: keys,
+      completedKeys: completed,
     );
   }
-}
 
-class _TaskSectionHeader extends StatelessWidget {
-  const _TaskSectionHeader({required this.dayIndex});
-
-  final int dayIndex;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final label = 'Tasks • Day ${dayIndex + 1}';
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        Text(
-          '1–3 tasks',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TaskTile extends StatelessWidget {
-  const _TaskTile({required this.task});
-
-  final DailyTask task;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final isDone = task.completedAt != null;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 22,
-            height: 22,
-            margin: const EdgeInsets.only(top: 4, right: 12),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isDone ? scheme.primary : scheme.outlineVariant,
-              ),
-            ),
-            child: isDone
-                ? Icon(Icons.check, size: 14, color: scheme.primary)
-                : null,
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  task.description,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurface,
-                    decoration: isDone
-                        ? TextDecoration.lineThrough
-                        : TextDecoration.none,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${task.estimatedMinutes} min',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LoadingRow extends StatelessWidget {
-  const _LoadingRow({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-        const SizedBox(width: 10),
-        Text(label, style: Theme.of(context).textTheme.bodyMedium),
-      ],
-    );
+  String _taskKey(DailyTask task, int index) {
+    if (task.id.isNotEmpty) {
+      return task.id;
+    }
+    final safeDescription = task.description.trim();
+    if (safeDescription.isNotEmpty) {
+      return '${widget.dayIndex}-$index-$safeDescription';
+    }
+    return '${widget.dayIndex}-$index';
   }
 }
