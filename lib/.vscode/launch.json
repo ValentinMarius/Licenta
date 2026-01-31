@@ -1,0 +1,54 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter – Android",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "toolArgs": [
+        "--dart-define=SUPABASE_URL=https://icogpatyypsirbrjryzb.supabase.co",
+        "--dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imljb2dwYXR5eXBzaXJicmpyeXpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MjQ0MTYsImV4cCI6MjA3ODIwMDQxNn0.uYTsB-EMzZFzX_JikDVF7X8HJleBFHf-wuZnyje5cyw",
+        "--dart-define=API_BASE_URL=http://10.0.2.2:8000"
+      ]
+    },
+    {
+      "name": "Flutter – iOS",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "toolArgs": [
+        "--dart-define=SUPABASE_URL=https://icogpatyypsirbrjryzb.supabase.co",
+        "--dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imljb2dwYXR5eXBzaXJicmpyeXpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MjQ0MTYsImV4cCI6MjA3ODIwMDQxNn0.uYTsB-EMzZFzX_JikDVF7X8HJleBFHf-wuZnyje5cyw",
+        "--dart-define=API_BASE_URL=http://localhost:8000"
+      ]
+    },
+    {
+      "name": "Flutter – Web",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "toolArgs": [
+        "--web-renderer=html",
+        "--dart-define=SUPABASE_URL=https://icogpatyypsirbrjryzb.supabase.co",
+        "--dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imljb2dwYXR5eXBzaXJicmpyeXpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MjQ0MTYsImV4cCI6MjA3ODIwMDQxNn0.uYTsB-EMzZFzX_JikDVF7X8HJleBFHf-wuZnyje5cyw",
+        "--dart-define=API_BASE_URL=http://localhost:8000"
+      ]
+    },
+    {
+      "name": "Flutter – Desktop",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "toolArgs": [
+        "--dart-define=SUPABASE_URL=https://icogpatyypsirbrjryzb.supabase.co",
+        "--dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imljb2dwYXR5eXBzaXJicmpyeXpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MjQ0MTYsImV4cCI6MjA3ODIwMDQxNn0.uYTsB-EMzZFzX_JikDVF7X8HJleBFHf-wuZnyje5cyw",
+        "--dart-define=API_BASE_URL=http://localhost:8000"
+      ]
+    }
+  ]
+}
