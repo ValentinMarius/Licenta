@@ -98,3 +98,8 @@ flutter:
     - assets/facebook.png
     - assets/Treespora_logo_transparent.png
     - assets/appleB.png
+    - lib/app/features/home/presentation/widgets/image.png
+    - lib/app/features/home/presentation/widgets/image-1.png
+    - lib/app/features/home/presentation/widgets/image-2.png
+    - lib/app/features/home/presentation/widgets/image-3.png
+    - lib/app/features/home/presentation/widgets/image-4.png

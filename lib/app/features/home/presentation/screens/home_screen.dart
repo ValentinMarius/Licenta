@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:treespora/app/features/goals/data/plan_repository.dart';
 import 'package:treespora/app/features/goals/state/active_goal_controller.dart';
 import 'package:treespora/app/features/home/presentation/widgets/home_streak_header.dart';
+import 'package:treespora/app/features/home/presentation/widgets/tree_growth_progress.dart';
 import 'package:treespora/app/features/tasks/state/task_progress_store.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -186,12 +187,7 @@ class _HomeProgressCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: progress,
-            minHeight: 10,
-            backgroundColor: scheme.surface,
-            color: scheme.primary,
-          ),
+          TreeGrowthProgress(progress: progress),
           const SizedBox(height: 12),
           Text(
             '$completedDays of $totalDays days complete',
