@@ -64,36 +64,6 @@ class _LoginFormState extends State<LoginForm> {
     }
   }
 
-  Widget _buildGoogleButton(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return OutlinedButton(
-      onPressed: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Google login is coming soon.')),
-        );
-      },
-      style: OutlinedButton.styleFrom(
-        backgroundColor: colorScheme.surfaceContainerHighest,
-        side: BorderSide(color: colorScheme.outlineVariant),
-        shape: const StadiumBorder(),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Image.asset('assets/google.png', width: 28, height: 28),
-          const SizedBox(width: 12),
-          Text(
-            'Login with Google',
-            style: textTheme.labelLarge?.copyWith(color: colorScheme.onSurface),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -197,24 +167,6 @@ class _LoginFormState extends State<LoginForm> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: Divider(color: colorScheme.outlineVariant)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  'Or sign in with',
-                  style: textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              Expanded(child: Divider(color: colorScheme.outlineVariant)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _buildGoogleButton(context),
         ],
       ),
     );

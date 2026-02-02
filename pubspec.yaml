@@ -94,7 +94,6 @@ flutter:
   assets:
     - assets/logo.png
     - assets/apple.png
-    - assets/google.png
     - assets/facebook.png
     - assets/Treespora_logo_transparent.png
     - assets/appleB.png

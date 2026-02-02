@@ -14,11 +14,15 @@ class TaskTile extends StatelessWidget {
     required this.task,
     required this.status,
     required this.onStatusChanged,
+    this.isEditable = true,
+    this.notDoneLabel,
   });
 
   final DailyTask task;
   final TaskCompletionStatus status;
   final ValueChanged<TaskCompletionStatus> onStatusChanged;
+  final bool isEditable;
+  final String? notDoneLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -26,12 +30,13 @@ class TaskTile extends StatelessWidget {
     final scheme = theme.colorScheme;
     final statusColor = _statusColor(scheme);
     final statusIcon = _statusIcon();
+    final label = _labelForStatus();
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => _showStatusSheet(context),
+        onTap: isEditable ? () => _showStatusSheet(context) : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
@@ -82,8 +87,8 @@ class TaskTile extends StatelessWidget {
                               color: statusColor.withOpacity(0.45),
                             ),
                           ),
-                          child: Text(
-                            status.label,
+                      child: Text(
+                            label,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: statusColor,
                               fontWeight: FontWeight.w600,
@@ -148,8 +153,16 @@ class TaskTile extends StatelessWidget {
   }
 
   void _selectStatus(BuildContext context, TaskCompletionStatus next) {
+    if (!isEditable) return;
     onStatusChanged(next);
     Navigator.of(context).pop();
+  }
+
+  String _labelForStatus() {
+    if (status == TaskCompletionStatus.notDone && notDoneLabel != null) {
+      return notDoneLabel!;
+    }
+    return status.label;
   }
 
   Color _statusColor(ColorScheme scheme) {

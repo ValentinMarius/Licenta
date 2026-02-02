@@ -1,21 +1,17 @@
 // lib/app/features/home/presentation/screens/home_screen.dart
-// Presents the Treespora home tab with streak header and goal progress.
+// Presents the Treespora home tab with goal progress.
 // Exists to surface progress updates that reflect task completion choices.
-// RELEVANT FILES:lib/app/features/home/root/main_tab_shell.dart,lib/app/features/home/presentation/widgets/home_streak_header.dart,lib/app/features/tasks/state/task_progress_store.dart
+// RELEVANT FILES:lib/app/features/home/root/main_tab_shell.dart,lib/app/features/home/presentation/widgets/tree_growth_progress.dart,lib/app/features/tasks/state/task_progress_store.dart
 
 import 'package:flutter/material.dart';
 
 import 'package:treespora/app/features/goals/data/plan_repository.dart';
 import 'package:treespora/app/features/goals/state/active_goal_controller.dart';
-import 'package:treespora/app/features/home/presentation/widgets/home_streak_header.dart';
 import 'package:treespora/app/features/home/presentation/widgets/tree_growth_progress.dart';
 import 'package:treespora/app/features/tasks/state/task_progress_store.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
-  static const StreakSnapshot _streakSample =
-      StreakSnapshot(current: 5, best: 14);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -71,8 +67,15 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          HomeStreakHeader(
-            streak: HomeScreen._streakSample,
+          Center(
+            child: Text(
+              'Treespora',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+            ),
           ),
           const SizedBox(height: 24),
           if (goalId == null)

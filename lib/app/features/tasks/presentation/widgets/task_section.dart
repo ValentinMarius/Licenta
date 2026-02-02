@@ -19,12 +19,16 @@ class TaskSection extends StatefulWidget {
     required this.dayIndex,
     required this.apiClient,
     required this.isPlanLoading,
+    required this.isEditable,
+    required this.isPastDay,
   });
 
   final String goalId;
   final int dayIndex;
   final TaskApiClient? apiClient;
   final bool isPlanLoading;
+  final bool isEditable;
+  final bool isPastDay;
 
   @override
   State<TaskSection> createState() => _TaskSectionState();
@@ -241,7 +245,10 @@ class _TaskSectionState extends State<TaskSection> {
                         dayIndex: widget.dayIndex,
                         taskKey: _taskKey(tasks[i], i),
                       ),
+                      isEditable: widget.isEditable,
+                      notDoneLabel: widget.isPastDay ? 'Not completed' : null,
                       onStatusChanged: (status) {
+                        if (!widget.isEditable) return;
                         _progressStore.setStatus(
                           goalId: widget.goalId,
                           dayIndex: widget.dayIndex,

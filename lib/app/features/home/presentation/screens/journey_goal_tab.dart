@@ -218,11 +218,30 @@ class _JourneyGoalTabState extends State<JourneyGoalTab> {
             fallbackDescription: _plan!.goalDescription,
           ),
           if (_goalId != null)
-            TaskSection(
-              goalId: _goalId!,
-              dayIndex: _selectedDayIndex,
-              apiClient: _taskApiClient,
-              isPlanLoading: _loadingPlan || _planSummaryLoading,
+            Builder(
+              builder: (context) {
+                final selected = _calendarDays.firstWhere(
+                  (d) => d.planDayIndex == _selectedDayIndex,
+                  orElse: () => _calendarDays.first,
+                );
+                final now = DateTime.now();
+                final today = DateTime(now.year, now.month, now.day);
+                final date = DateTime(
+                  selected.date.year,
+                  selected.date.month,
+                  selected.date.day,
+                );
+                final isToday = DateUtils.isSameDay(date, today);
+                final isPast = date.isBefore(today);
+                return TaskSection(
+                  goalId: _goalId!,
+                  dayIndex: _selectedDayIndex,
+                  apiClient: _taskApiClient,
+                  isPlanLoading: _loadingPlan || _planSummaryLoading,
+                  isEditable: isToday,
+                  isPastDay: isPast,
+                );
+              },
             ),
         ],
       ),
