@@ -100,7 +100,10 @@ class _TaskSectionState extends State<TaskSection> {
       _showSnackBar('Tasks generated successfully.');
       _reloadTasks();
     } catch (error) {
-      _showSnackBar('Could not generate tasks. Please try again.');
+      final message = error is TaskApiException
+          ? error.message
+          : 'Could not generate tasks. Please try again.';
+      _showSnackBar(message);
     } finally {
       if (mounted) {
         setState(() {
@@ -151,6 +154,7 @@ class _TaskSectionState extends State<TaskSection> {
 
         if (snapshot.hasError) {
           final error = snapshot.error;
+          debugPrint('TaskSection.loadTasks failed: $error');
           if (error is TaskPlanPendingException) {
             return TaskSectionShell(
               child: Column(
@@ -190,6 +194,13 @@ class _TaskSectionState extends State<TaskSection> {
                   style: Theme.of(
                     context,
                   ).textTheme.bodyMedium?.copyWith(color: Colors.redAccent),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$error',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.redAccent),
                 ),
               ],
             ),

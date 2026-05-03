@@ -117,6 +117,7 @@ backend/
 flutter pub get
 flutter analyze
 flutter run --dart-define=APP_NAME=Treespora
+./run_dev.sh
 ```
 
 Pentru web:

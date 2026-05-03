@@ -6,6 +6,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:treespora/app/features/auth/data/auth_repository.dart';
+import 'package:treespora/app/features/goals/data/goal_repository.dart';
+import 'package:treespora/app/features/goals/domain/goal_completion_stats.dart';
 import 'package:treespora/app/features/profile/presentation/screens/settings_screen.dart';
 import 'package:treespora/app/features/onboarding/presentation/widgets/animated_button.dart';
 
@@ -171,7 +173,91 @@ class ProfileContent extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 20),
+        _buildGoalStats(context),
       ],
+    );
+  }
+
+  Widget _buildGoalStats(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+
+    return FutureBuilder<GoalCompletionStats>(
+      future: GoalRepository.instance.fetchCompletedGoalStats(),
+      builder: (context, snapshot) {
+        final stats = snapshot.data ?? GoalCompletionStats.empty;
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colorScheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Goals completed: ${stats.totalCompleted}',
+                style: textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Completed in 7 days or less: ${stats.completedIn7Days}',
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Completed in 8-31 days: ${stats.completedIn8To31Days}',
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Completed in 32-365 days: ${stats.completedIn32To365Days}',
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Trees planted: ${stats.totalTrees}',
+                style: textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Weekly goals (1 tree / 4 goals): ${stats.treesFromWeeklyGoals}',
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Monthly goals (1 tree / goal): ${stats.treesFromMonthlyGoals}',
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Yearly goals (1 tree / month): ${stats.treesFromYearlyGoals}',
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

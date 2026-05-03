@@ -8,9 +8,6 @@ import 'package:treespora/app/core/theme/app_canvas_background.dart';
 import 'package:treespora/app/core/routes.dart';
 import 'package:treespora/app/features/auth/presentation/widgets/login_form.dart';
 import 'package:treespora/app/features/onboarding/presentation/widgets/animated_button.dart';
-import 'package:treespora/app/features/onboarding/data/onboarding_storage.dart';
-import 'package:treespora/app/features/onboarding/state/onboarding_state.dart';
-import 'package:treespora/app/features/profile/data/profile_repository.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -23,8 +20,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     with TickerProviderStateMixin {
   late final AnimationController _animationController;
   late final Animation<Offset> _logoAnimation;
-  String _languageCode = ProfileData.allowedLanguages.first;
-  bool _loadingLanguage = true;
 
   @override
   void initState() {
@@ -37,7 +32,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       begin: Offset.zero,
       end: const Offset(0, -225),
     ).animate(_animationController);
-    _loadSavedLanguage();
   }
 
   @override
@@ -48,30 +42,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
   void _openOnboarding(BuildContext context) {
     Navigator.pushNamed(context, AppRoutes.onboarding);
-  }
-
-  Future<void> _loadSavedLanguage() async {
-    final state = await OnboardingStorage.readState();
-    final fromOnboarding = state.language != OnboardingState.skipValue
-        ? state.language
-        : null;
-    if (!mounted) return;
-    setState(() {
-      _languageCode = fromOnboarding ?? ProfileData.allowedLanguages.first;
-      _loadingLanguage = false;
-    });
-  }
-
-  Future<void> _selectLanguage(String code) async {
-    setState(() {
-      _languageCode = code;
-    });
-    final current = await OnboardingStorage.readState();
-    final updated = current.copyWith(language: code);
-    await OnboardingStorage.saveState(updated);
-    await ProfileRepository.instance.upsertProfile(
-      ProfileData(languageCode: code),
-    );
   }
 
   void _handleLoginSuccess() {
@@ -107,15 +77,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    if (!_loadingLanguage)
-                      _LanguageSelector(
-                        current: _languageCode,
-                        onChanged: _selectLanguage,
-                      ),
-                  ],
-                ),
+                const SizedBox(height: 16),
                 Expanded(
                   child: Center(
                     child: Column(
@@ -235,50 +197,5 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       },
     );
     _animationController.reverse();
-  }
-}
-
-class _LanguageSelector extends StatelessWidget {
-  const _LanguageSelector({required this.current, required this.onChanged});
-
-  final String current;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: colorScheme.surface.withOpacity(0.8),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colorScheme.onSurface.withOpacity(0.1)),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: current,
-          icon: const Icon(Icons.arrow_drop_down_rounded),
-          elevation: 0,
-          dropdownColor: colorScheme.surface,
-          items: ProfileData.allowedLanguages
-              .map(
-                (code) => DropdownMenuItem<String>(
-                  value: code,
-                  child: Text(
-                    code.toUpperCase(),
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-              )
-              .toList(),
-          onChanged: (value) {
-            if (value != null) {
-              onChanged(value);
-            }
-          },
-        ),
-      ),
-    );
   }
 }

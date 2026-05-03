@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:treespora/app/features/goals/data/goal_repository.dart';
 import 'package:treespora/app/features/goals/data/plan_repository.dart';
 import 'package:treespora/app/features/goals/state/active_goal_controller.dart';
 import 'package:treespora/app/features/home/presentation/widgets/tree_growth_progress.dart';
@@ -18,8 +19,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final GoalRepository _goalRepository = GoalRepository.instance;
   final PlanRepository _planRepository = PlanRepository.instance;
   final TaskProgressStore _progressStore = TaskProgressStore.instance;
+  final Set<String> _completedGoals = {};
   String? _goalId;
   PlanInfo? _plan;
   bool _loadingPlan = false;
@@ -59,6 +62,20 @@ class _HomeScreenState extends State<HomeScreen> {
     return plan.durationDays > 0 ? plan.durationDays : 1;
   }
 
+  void _maybeMarkGoalCompleted({
+    required String goalId,
+    required double progress,
+  }) {
+    if (progress < 1) {
+      return;
+    }
+    if (_completedGoals.contains(goalId)) {
+      return;
+    }
+    _completedGoals.add(goalId);
+    _goalRepository.markGoalCompleted(goalId);
+  }
+
   @override
   Widget build(BuildContext context) {
     final goalId = _goalId;
@@ -71,10 +88,10 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text(
               'Treespora',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
-                  ),
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -103,6 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   goalId: goalId,
                   totalDays: totalDays,
                 );
+                _maybeMarkGoalCompleted(goalId: goalId, progress: progress);
                 return _HomeProgressCard(
                   completedDays: completedDays,
                   totalDays: totalDays,
@@ -117,10 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _HomePlaceholder extends StatelessWidget {
-  const _HomePlaceholder({
-    required this.title,
-    required this.subtitle,
-  });
+  const _HomePlaceholder({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;

@@ -253,7 +253,7 @@ class LlmClient:
                     normalized_tasks.append(
                         {**task, "estimated_minutes": coerced_minutes},
                     )
-                day = {**day, "tasks": normalized_tasks}
+                day = {**day, "tasks": normalized_tasks[:3]}
             normalized_days.append(day)
         return {**payload, "days": normalized_days}
 

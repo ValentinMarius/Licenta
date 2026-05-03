@@ -106,6 +106,28 @@ class AuthRepository {
     await _client?.auth.signOut();
   }
 
+  Future<void> sendPasswordResetEmail({required String email}) async {
+    _ensureConfigured();
+    final trimmed = email.trim();
+    if (trimmed.isEmpty || !trimmed.contains('@')) {
+      throw const AuthFlowException('Enter a valid email first.');
+    }
+    try {
+      await _client!.auth.resetPasswordForEmail(trimmed);
+    } on AuthException catch (error) {
+      final normalized = error.message.toLowerCase();
+      if (normalized.contains('not found') ||
+          normalized.contains('user') && normalized.contains('exist')) {
+        throw const AuthFlowException('No account found for this email.');
+      }
+      throw AuthFlowException(error.message);
+    } catch (_) {
+      throw const AuthFlowException(
+        'We could not send the reset email. Please try again.',
+      );
+    }
+  }
+
   /// Deletes the current user's account and all associated data.
   /// Calls Edge Function to delete from auth.users (requires admin privileges).
   Future<void> deleteAccount() async {

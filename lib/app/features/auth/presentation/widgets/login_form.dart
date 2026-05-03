@@ -25,6 +25,7 @@ class _LoginFormState extends State<LoginForm> {
   bool _obscurePassword = true;
   bool _loading = false;
   String? _errorMessage;
+  String? _resetMessage;
 
   @override
   void dispose() {
@@ -51,6 +52,35 @@ class _LoginFormState extends State<LoginForm> {
       await OnboardingStorage.ensureOnboardingDoneFlag();
       if (!mounted) return;
       widget.onSuccess?.call();
+    } on AuthFlowException catch (error) {
+      setState(() {
+        _errorMessage = error.message;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _sendPasswordReset() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+      _resetMessage = null;
+    });
+
+    try {
+      await AuthRepository.instance.sendPasswordResetEmail(
+        email: _emailController.text,
+      );
+      if (!mounted) return;
+      setState(() {
+        _resetMessage = 'Reset email sent. Check your inbox.';
+      });
     } on AuthFlowException catch (error) {
       setState(() {
         _errorMessage = error.message;
@@ -132,6 +162,19 @@ class _LoginFormState extends State<LoginForm> {
                 style: textTheme.bodyMedium?.copyWith(color: colorScheme.error),
               ),
             ),
+          if (_resetMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _resetMessage!,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ),
+            ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
@@ -151,15 +194,7 @@ class _LoginFormState extends State<LoginForm> {
           ),
           const SizedBox(height: 16),
           TextButton(
-            onPressed: _loading
-                ? null
-                : () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Password reset will be added soon.'),
-                      ),
-                    );
-                  },
+            onPressed: _loading ? null : _sendPasswordReset,
             child: Text(
               'Forgotten your Password?',
               style: textTheme.bodyMedium?.copyWith(

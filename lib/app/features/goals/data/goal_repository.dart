@@ -3,10 +3,12 @@
 // Keeps storage and formatting concerns separate from the UI widgets.
 // RELEVANT FILES:lib/app/features/goals/domain/goal_composer.dart,lib/app/features/onboarding/data/onboarding_storage.dart,lib/app/features/home/root/main_tab_shell.dart,lib/app/features/goals/domain/plan_summary.dart
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:treespora/app/core/config/app_config.dart';
@@ -14,6 +16,7 @@ import 'package:treespora/app/features/onboarding/data/onboarding_storage.dart';
 import 'package:treespora/app/features/onboarding/state/onboarding_state.dart';
 import 'package:treespora/app/features/profile/data/profile_repository.dart';
 import '../domain/goal_composer.dart';
+import '../domain/goal_completion_stats.dart';
 import '../domain/goal_summary.dart';
 import '../domain/plan_summary.dart';
 
@@ -50,6 +53,38 @@ class GoalRepository {
       return Supabase.instance.client;
     } catch (_) {
       return null;
+    }
+  }
+
+  String _planSummaryCacheKey(String goalId) {
+    return 'plan_summary_$goalId';
+  }
+
+  Future<PlanSummary?> _readCachedPlanSummary(String goalId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_planSummaryCacheKey(goalId));
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return PlanSummary.fromJson(decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeCachedPlanSummary(String goalId, String body) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_planSummaryCacheKey(goalId), body);
+  }
+
+  Future<void> _refreshPlanSummary(String goalId, Uri uri) async {
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        await _writeCachedPlanSummary(goalId, response.body);
+      }
+    } catch (error) {
+      debugPrint('GoalRepository.refreshPlanSummary failed: $error');
     }
   }
 
@@ -223,6 +258,22 @@ class GoalRepository {
     return '${date.year}-$month-$day';
   }
 
+  DateTime? _parseDateValue(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is DateTime) {
+      return DateTime(value.year, value.month, value.day);
+    }
+    if (value is String && value.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) {
+        return DateTime(parsed.year, parsed.month, parsed.day);
+      }
+    }
+    return null;
+  }
+
   Future<List<GoalSummary>> fetchGoalsForCurrentUser() async {
     final supabase = _client;
     final userId = supabase?.auth.currentUser?.id;
@@ -253,6 +304,84 @@ class GoalRepository {
     }
   }
 
+  Future<GoalCompletionStats> fetchCompletedGoalStats() async {
+    final supabase = _client;
+    final userId = supabase?.auth.currentUser?.id;
+    if (supabase == null || userId == null) {
+      return GoalCompletionStats.empty;
+    }
+
+    try {
+      final response = await supabase
+          .from('goals')
+          .select('start_date,target_date,completed_at')
+          .eq('user_id', userId)
+          .not('completed_at', 'is', null);
+      if (response is! List) {
+        return GoalCompletionStats.empty;
+      }
+
+      var total = 0;
+      var in7 = 0;
+      var in8To31 = 0;
+      var in32To365 = 0;
+
+      for (final row in response.whereType<Map<String, dynamic>>()) {
+        final start = _parseDateValue(row['start_date']);
+        final target = _parseDateValue(row['target_date']);
+        if (start == null || target == null) {
+          continue;
+        }
+        final durationDays = target.difference(start).inDays + 1;
+        if (durationDays <= 0) {
+          continue;
+        }
+        total += 1;
+        if (durationDays <= 7) {
+          in7 += 1;
+        } else if (durationDays <= 31) {
+          in8To31 += 1;
+        } else {
+          in32To365 += 1;
+        }
+      }
+
+      return GoalCompletionStats(
+        totalCompleted: total,
+        completedIn7Days: in7,
+        completedIn8To31Days: in8To31,
+        completedIn32To365Days: in32To365,
+      );
+    } catch (error) {
+      debugPrint('GoalRepository.fetchCompletedGoalStats failed: $error');
+      return GoalCompletionStats.empty;
+    }
+  }
+
+  Future<void> markGoalCompleted(String goalId) async {
+    final supabase = _client;
+    if (supabase == null || goalId.isEmpty) {
+      return;
+    }
+    try {
+      final existing = await supabase
+          .from('goals')
+          .select('completed_at')
+          .eq('id', goalId)
+          .maybeSingle();
+      final completedAt = _parseDateValue(existing?['completed_at']);
+      if (completedAt != null) {
+        return;
+      }
+      await supabase
+          .from('goals')
+          .update({'completed_at': DateTime.now().toIso8601String()})
+          .eq('id', goalId);
+    } catch (error) {
+      debugPrint('GoalRepository.markGoalCompleted failed: $error');
+    }
+  }
+
   Future<PlanSummary?> fetchPlanSummary(String goalId) async {
     if (goalId.isEmpty) {
       debugPrint('GoalRepository.fetchPlanSummary: goal id is missing.');
@@ -270,10 +399,16 @@ class GoalRepository {
         ? baseUrl.substring(0, baseUrl.length - 1)
         : baseUrl;
     final uri = Uri.parse('$normalizedBaseUrl/v1/goals/$goalId/plan/summary');
+    final cached = await _readCachedPlanSummary(goalId);
+    if (cached != null) {
+      unawaited(_refreshPlanSummary(goalId, uri));
+      return cached;
+    }
     try {
-      final response = await http.get(uri);
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        await _writeCachedPlanSummary(goalId, response.body);
         return PlanSummary.fromJson(decoded);
       }
       debugPrint(
