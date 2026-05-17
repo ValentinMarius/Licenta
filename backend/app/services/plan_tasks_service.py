@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas.plan_tasks import (
     TaskPlanPrompt,
+    TaskPlanGenerationResult,
     TaskPlanResult,
     TasksForDayResponse,
 )
@@ -22,6 +23,8 @@ from .llm_client import LlmClient
 
 ALLOWED_LANGUAGES = {"en", "es", "zh", "hi", "ar", "ro"}
 DEFAULT_PLAN_DURATION_DAYS = 30
+PLAN_WINDOW_DAYS = 14
+TASK_GENERATION_MODE = "windowed"
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +40,10 @@ class TaskPlanValidationError(Exception):
     """Raised when the task-plan payload is invalid."""
 
 
+class TaskPlanNotGeneratedError(Exception):
+    """Raised when tasks are not yet generated for the requested day."""
+
+
 class PlanTasksService:
     """Generates actionable tasks for a goal by leveraging the LLM agent."""
 
@@ -48,8 +55,10 @@ class PlanTasksService:
     async def generate_task_plan_for_goal(
         self,
         goal_id: str,
+        start_day_index: Optional[int] = None,
+        window_days: Optional[int] = None,
         start_date_override: Optional[date] = None,
-    ) -> TaskPlanResult:
+    ) -> TaskPlanGenerationResult:
         try:
             goal = await self._fetch_goal(goal_id)
             plan = await self._fetch_active_plan(goal_id)
@@ -104,13 +113,77 @@ class PlanTasksService:
             )
 
             expected_days = max((target_date - start_date_value).days + 1, 1)
-            task_plan_raw = await self._llm_client.generate_task_plan(prompt)
-            task_plan = self._normalize_task_plan(task_plan_raw, expected_days)
+            window_size = max(1, window_days or PLAN_WINDOW_DAYS)
+            window_size = min(window_size, expected_days)
+            safe_start_index = max(0, start_day_index or 0)
+            if safe_start_index >= expected_days:
+                safe_start_index = max(expected_days - 1, 0)
+            window_end_index = min(
+                safe_start_index + window_size - 1,
+                expected_days - 1,
+            )
+            window_size = window_end_index - safe_start_index + 1
+            window_start_date = start_date_value + timedelta(days=safe_start_index)
+            window_target_date = start_date_value + timedelta(days=window_end_index)
 
-            await self._persist_plan_json(plan_id_str, task_plan)
-            await self._replace_plan_tasks(plan_id_str, goal_id_str, task_plan)
+            plan_payload = plan.get("plan_json") or {}
+            if not isinstance(plan_payload, dict):
+                plan_payload = {}
+            is_windowed = plan_payload.get("task_generation_mode") == TASK_GENERATION_MODE
+            if not is_windowed and safe_start_index == 0:
+                await self._trim_future_tasks(plan_id_str, window_end_index)
+
+            existing_days = await self._fetch_existing_task_days(
+                plan_id_str,
+                safe_start_index,
+                window_end_index,
+            )
+            if len(existing_days) == window_size:
+                return TaskPlanGenerationResult(
+                    goal_id=goal_id_str,
+                    plan_id=plan_id_str,
+                    window_start_day_index=safe_start_index,
+                    window_end_day_index=window_end_index,
+                    days_generated=0,
+                    generated=False,
+                )
+
+            window_prompt = prompt.model_copy(
+                update={
+                    "start_date": window_start_date,
+                    "target_date": window_target_date,
+                    "estimated_duration_days": window_size,
+                },
+            )
+            task_plan_raw = await self._llm_client.generate_task_plan(window_prompt)
+            task_plan = self._normalize_task_plan(
+                task_plan_raw,
+                expected_days=window_size,
+                day_index_offset=safe_start_index,
+            )
+
+            days_generated = await self._insert_task_plan_window(
+                plan_id_str,
+                goal_id_str,
+                task_plan,
+                start_date_value,
+                existing_days,
+            )
+            await self._update_task_generation_metadata(
+                plan_id_str,
+                plan_payload,
+                window_days=window_size,
+                generated_until=window_end_index,
+            )
             await self._db_session.commit()
-            return task_plan
+            return TaskPlanGenerationResult(
+                goal_id=goal_id_str,
+                plan_id=plan_id_str,
+                window_start_day_index=safe_start_index,
+                window_end_day_index=window_end_index,
+                days_generated=days_generated,
+                generated=days_generated > 0,
+            )
         except (ActivePlanNotFoundError, GoalTargetDateMissingError, TaskPlanValidationError):
             raise
         except Exception:
@@ -208,37 +281,16 @@ class PlanTasksService:
             return None
         return ", ".join(parts)
 
-    async def _persist_plan_json(self, plan_id: str, task_plan: TaskPlanResult) -> None:
-        """Replace ai_plans.plan_json with the freshly generated payload."""
-        target_date = self._compute_task_plan_target_date(task_plan)
-        await self._db_session.execute(
-            text(
-                """
-                UPDATE ai_plans
-                SET plan_json = CAST(:plan_json AS jsonb),
-                    target_date = :target_date,
-                    updated_at = NOW()
-                WHERE id = :plan_id
-                """,
-            ),
-            {
-                "plan_id": plan_id,
-                "plan_json": json.dumps(task_plan.model_dump(mode="json")),
-                "target_date": target_date,
-            },
-        )
-
-    async def _replace_plan_tasks(
+    async def _insert_task_plan_window(
         self,
         plan_id: str,
         goal_id: str,
         task_plan: TaskPlanResult,
-    ) -> None:
-        """Stores each generated task into the tasks table."""
-        await self._db_session.execute(
-            text("DELETE FROM tasks WHERE plan_id = :plan_id"),
-            {"plan_id": plan_id},
-        )
+        plan_start_date: date,
+        existing_days: set[int],
+    ) -> int:
+        """Stores generated tasks for missing days without overwriting existing ones."""
+        inserted_days = 0
         if await self._supports_extended_task_schema():
             insert_query = text(
                 """
@@ -273,7 +325,10 @@ class PlanTasksService:
                 """,
             )
             for day in task_plan.days:
-                planned_date = task_plan.start_date + timedelta(days=day.day_index)
+                if day.day_index in existing_days:
+                    continue
+                planned_date = plan_start_date + timedelta(days=day.day_index)
+                inserted_days += 1
                 for order_in_day, task in enumerate(day.tasks, start=1):
                     await self._db_session.execute(
                         insert_query,
@@ -313,6 +368,9 @@ class PlanTasksService:
                 """,
             )
             for day in task_plan.days:
+                if day.day_index in existing_days:
+                    continue
+                inserted_days += 1
                 for order_in_day, task in enumerate(day.tasks, start=1):
                     await self._db_session.execute(
                         insert_query,
@@ -324,6 +382,7 @@ class PlanTasksService:
                             "estimated_minutes": task.estimated_minutes,
                         },
                     )
+        return inserted_days
 
     async def fetch_tasks_for_day(
         self,
@@ -336,6 +395,14 @@ class PlanTasksService:
         plan = await self._fetch_active_plan(goal_id)
         if not plan:
             raise ActivePlanNotFoundError("No active plan found for goal.")
+        plan_payload = plan.get("plan_json") or {}
+        if isinstance(plan_payload, dict):
+            generated_until = plan_payload.get("tasks_generated_until_day_index")
+            if isinstance(generated_until, int) and generated_until >= 0:
+                if day_index > generated_until:
+                    raise TaskPlanNotGeneratedError(
+                        "Tasks are not generated for this day yet."
+                    )
         plan_id = str(plan["id"])
         tasks_query = text(
             """
@@ -350,6 +417,8 @@ class PlanTasksService:
             {"plan_id": plan_id, "day_index": day_index},
         )
         rows = result.mappings().all()
+        if not rows:
+            raise TaskPlanNotGeneratedError("Tasks are not generated for this day yet.")
         return TasksForDayResponse(
             goal_id=goal_id,
             plan_id=plan_id,
@@ -388,18 +457,11 @@ class PlanTasksService:
             return int(value)
         return None
 
-    def _compute_task_plan_target_date(self, task_plan: TaskPlanResult) -> date:
-        if task_plan.days:
-            last_day_index = max(day.day_index for day in task_plan.days)
-        else:
-            horizon = max(task_plan.time_horizon_days or 1, 1)
-            last_day_index = horizon - 1
-        return task_plan.start_date + timedelta(days=last_day_index)
-
     def _normalize_task_plan(
         self,
         task_plan: TaskPlanResult,
         expected_days: int,
+        day_index_offset: int = 0,
     ) -> TaskPlanResult:
         """Ensures day indexes start at 0 and align with the requested horizon."""
         if not task_plan.days:
@@ -411,12 +473,87 @@ class PlanTasksService:
         ]
         horizon = expected_days if expected_days > 0 else len(normalized_days)
         trimmed_days = normalized_days[:horizon]
+        if day_index_offset:
+            trimmed_days = [
+                day.model_copy(update={"day_index": day.day_index + day_index_offset})
+                for day in trimmed_days
+            ]
         return task_plan.model_copy(
             update={
                 "days": trimmed_days,
                 "time_horizon_days": len(trimmed_days),
             },
         )
+
+    async def _trim_future_tasks(self, plan_id: str, max_day_index: int) -> None:
+        await self._db_session.execute(
+            text(
+                """
+                DELETE FROM tasks
+                WHERE plan_id = :plan_id AND day_index > :max_day_index
+                """,
+            ),
+            {"plan_id": plan_id, "max_day_index": max_day_index},
+        )
+
+    async def _update_task_generation_metadata(
+        self,
+        plan_id: str,
+        plan_payload: dict,
+        window_days: int,
+        generated_until: int,
+    ) -> None:
+        existing_until = plan_payload.get("tasks_generated_until_day_index")
+        if isinstance(existing_until, int):
+            generated_until = max(existing_until, generated_until)
+        plan_payload = {
+            **plan_payload,
+            "task_generation_mode": TASK_GENERATION_MODE,
+            "tasks_window_days": window_days,
+            "tasks_generated_until_day_index": generated_until,
+        }
+        await self._db_session.execute(
+            text(
+                """
+                UPDATE ai_plans
+                SET plan_json = CAST(:plan_json AS jsonb),
+                    updated_at = NOW()
+                WHERE id = :plan_id
+                """,
+            ),
+            {
+                "plan_id": plan_id,
+                "plan_json": json.dumps(plan_payload),
+            },
+        )
+
+    async def _fetch_existing_task_days(
+        self,
+        plan_id: str,
+        start_day_index: int,
+        end_day_index: int,
+    ) -> set[int]:
+        query = text(
+            """
+            SELECT day_index, COUNT(*) AS task_count
+            FROM tasks
+            WHERE plan_id = :plan_id
+              AND day_index BETWEEN :start_day AND :end_day
+            GROUP BY day_index
+            """,
+        )
+        result = await self._db_session.execute(
+            query,
+            {
+                "plan_id": plan_id,
+                "start_day": start_day_index,
+                "end_day": end_day_index,
+            },
+        )
+        rows = result.mappings().all()
+        return {
+            int(row["day_index"]) for row in rows if row.get("task_count", 0) > 0
+        }
 
     async def _supports_extended_task_schema(self) -> bool:
         if self._tasks_extended_schema is not None:

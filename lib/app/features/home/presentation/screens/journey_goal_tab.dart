@@ -108,6 +108,20 @@ class _JourneyGoalTabState extends State<JourneyGoalTab> {
     return 0;
   }
 
+  int _deriveTodayDayIndex(PlanInfo plan) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final planStart = DateTime(
+      plan.startDate.year,
+      plan.startDate.month,
+      plan.startDate.day,
+    );
+    if (today.isBefore(planStart)) {
+      return 0;
+    }
+    return today.difference(planStart).inDays.clamp(0, plan.durationDays - 1);
+  }
+
   int _planTotalDays(PlanInfo plan) {
     return plan.durationDays > 0 ? plan.durationDays : 1;
   }
@@ -166,8 +180,6 @@ class _JourneyGoalTabState extends State<JourneyGoalTab> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     if (_goalId == null) {
       return _PlaceholderCard(
         message:
@@ -236,6 +248,8 @@ class _JourneyGoalTabState extends State<JourneyGoalTab> {
                 return TaskSection(
                   goalId: _goalId!,
                   dayIndex: _selectedDayIndex,
+                  totalDays: totalDays,
+                  currentDayIndex: _deriveTodayDayIndex(_plan!),
                   apiClient: _taskApiClient,
                   isPlanLoading: _loadingPlan || _planSummaryLoading,
                   isEditable: isToday,

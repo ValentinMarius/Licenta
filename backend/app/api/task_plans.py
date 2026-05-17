@@ -6,18 +6,20 @@
 from __future__ import annotations
 
 import logging
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_db_session
-from ..schemas.plan_tasks import TaskPlanResult, TasksForDayResponse
+from ..schemas.plan_tasks import TaskPlanGenerationResult, TasksForDayResponse
 from ..services.llm_client import LlmClient, LlmClientError, get_llm_client
 from ..services.plan_tasks_service import (
     ActivePlanNotFoundError,
     GoalTargetDateMissingError,
     PlanTasksService,
+    TaskPlanNotGeneratedError,
     TaskPlanValidationError,
 )
 
@@ -35,13 +37,15 @@ def get_plan_tasks_service(
 
 @router.post(
     "/{goal_id}/task_plan",
-    response_model=TaskPlanResult,
+    response_model=TaskPlanGenerationResult,
     status_code=status.HTTP_200_OK,
 )
 async def generate_task_plan(
     goal_id: UUID,
     service: PlanTasksService = Depends(get_plan_tasks_service),
-) -> TaskPlanResult:
+    start_day_index: Optional[int] = Query(None, ge=0),
+    window_days: Optional[int] = Query(None, ge=1),
+) -> TaskPlanGenerationResult:
     """
     Generate (or regenerate) the daily tasks for a goal.
 
@@ -49,11 +53,14 @@ async def generate_task_plan(
     - fetches goal + active summary,
     - constructs TaskPlanPrompt,
     - calls the LLM,
-    - updates ai_plans.plan_json,
-    - replaces all rows in `tasks`.
+    - generates a window of tasks without overwriting existing days.
     """
     try:
-        return await service.generate_task_plan_for_goal(str(goal_id))
+        return await service.generate_task_plan_for_goal(
+            str(goal_id),
+            start_day_index=start_day_index,
+            window_days=window_days,
+        )
     except ActivePlanNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -106,6 +113,11 @@ async def get_tasks_for_day(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"detail": "task_plan_invalid", "message": str(error)},
+        ) from error
+    except TaskPlanNotGeneratedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"detail": "task_plan_pending", "message": str(error)},
         ) from error
     except HTTPException:
         raise

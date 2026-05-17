@@ -3,6 +3,8 @@
 // Exists to keep task loading/regeneration logic out of the main journey widget.
 // RELEVANT FILES:lib/app/features/home/presentation/screens/journey_goal_tab.dart,lib/app/features/tasks/data/task_api_client.dart,lib/app/features/tasks/models/daily_task.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:treespora/app/features/tasks/data/task_api_client.dart';
@@ -17,6 +19,8 @@ class TaskSection extends StatefulWidget {
     super.key,
     required this.goalId,
     required this.dayIndex,
+    required this.totalDays,
+    required this.currentDayIndex,
     required this.apiClient,
     required this.isPlanLoading,
     required this.isEditable,
@@ -25,6 +29,8 @@ class TaskSection extends StatefulWidget {
 
   final String goalId;
   final int dayIndex;
+  final int totalDays;
+  final int currentDayIndex;
   final TaskApiClient? apiClient;
   final bool isPlanLoading;
   final bool isEditable;
@@ -38,6 +44,7 @@ class _TaskSectionState extends State<TaskSection> {
   final TaskProgressStore _progressStore = TaskProgressStore.instance;
   Future<List<DailyTask>>? _tasksFuture;
   bool _isRegenerating = false;
+  final Set<int> _autoGeneratingStarts = <int>{};
 
   @override
   void initState() {
@@ -87,16 +94,63 @@ class _TaskSectionState extends State<TaskSection> {
           .fetchTasksForDay(goalId: widget.goalId, dayIndex: widget.dayIndex)
           .then((resp) => resp.tasks);
     });
+    unawaited(_maybeAutoGenerateNextWindow());
+  }
+
+  Future<void> _maybeAutoGenerateNextWindow() async {
+    final client = widget.apiClient;
+    if (client == null || !client.isConfigured) return;
+    if (widget.totalDays <= TaskApiClient.planWindowDays) return;
+
+    final windowDays = TaskApiClient.planWindowDays;
+    final leadDays = TaskApiClient.prefetchLeadDays;
+    final currentWindowStart = (widget.dayIndex ~/ windowDays) * windowDays;
+    final currentWindowEnd = (currentWindowStart + windowDays - 1)
+        .clamp(0, widget.totalDays - 1)
+        .toInt();
+    if (widget.dayIndex < currentWindowEnd - leadDays) return;
+
+    final nextWindowStart = currentWindowStart + windowDays;
+    if (nextWindowStart >= widget.totalDays) return;
+    if (widget.currentDayIndex < nextWindowStart) return;
+    if (_autoGeneratingStarts.contains(nextWindowStart)) return;
+
+    _autoGeneratingStarts.add(nextWindowStart);
+    try {
+      await client.generateTaskPlan(
+        goalId: widget.goalId,
+        startDayIndex: nextWindowStart,
+        windowDays: windowDays,
+      );
+    } catch (error) {
+      debugPrint('TaskSection.autoGenerateNextWindow failed: $error');
+      _autoGeneratingStarts.remove(nextWindowStart);
+    }
   }
 
   Future<void> _handleGenerateTasks() async {
     final client = widget.apiClient;
     if (client == null || !client.isConfigured || _isRegenerating) return;
+    final windowDays = TaskApiClient.planWindowDays;
+    final startDayIndex = (widget.dayIndex ~/ windowDays) * windowDays;
+    if (widget.currentDayIndex < startDayIndex) {
+      _showSnackBar(
+        'Tasks for this window unlock on day ${startDayIndex + 1}.',
+      );
+      return;
+    }
+    final boundedWindowDays = (startDayIndex + windowDays) > widget.totalDays
+        ? (widget.totalDays - startDayIndex).clamp(1, windowDays)
+        : windowDays;
     setState(() {
       _isRegenerating = true;
     });
     try {
-      await client.generateTaskPlan(goalId: widget.goalId);
+      await client.generateTaskPlan(
+        goalId: widget.goalId,
+        startDayIndex: startDayIndex,
+        windowDays: boundedWindowDays,
+      );
       _showSnackBar('Tasks generated successfully.');
       _reloadTasks();
     } catch (error) {
@@ -156,29 +210,43 @@ class _TaskSectionState extends State<TaskSection> {
           final error = snapshot.error;
           debugPrint('TaskSection.loadTasks failed: $error');
           if (error is TaskPlanPendingException) {
+            final windowDays = TaskApiClient.planWindowDays;
+            final currentWindowStart =
+                (widget.dayIndex ~/ windowDays) * windowDays;
+            final isWindowGenerating =
+                _isRegenerating ||
+                _autoGeneratingStarts.contains(currentWindowStart);
+            final canGenerate = widget.currentDayIndex >= currentWindowStart;
             return TaskSectionShell(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TaskSectionHeader(dayIndex: widget.dayIndex),
                   const SizedBox(height: 12),
-                  const TaskSectionLoadingRow(
-                    label: 'Generating tasks for this plan...',
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 40,
-                    child: ElevatedButton(
-                      onPressed: _isRegenerating ? null : _handleGenerateTasks,
-                      child: _isRegenerating
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Generate Tasks'),
+                  if (isWindowGenerating)
+                    const TaskSectionLoadingRow(
+                      label: 'Generating tasks for this window...',
+                    )
+                  else if (canGenerate) ...[
+                    Text(
+                      'Tasks for this window are not ready yet.',
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
-                  ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 40,
+                      child: ElevatedButton(
+                        onPressed: _handleGenerateTasks,
+                        child: const Text('Generate Tasks'),
+                      ),
+                    ),
+                  ] else ...[
+                    Text(
+                      'Tasks for this window unlock on day '
+                      '${currentWindowStart + 1}.',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
                 ],
               ),
             );
@@ -208,32 +276,44 @@ class _TaskSectionState extends State<TaskSection> {
         }
 
         final tasks = snapshot.data ?? const [];
-        _registerTasks(tasks);
+        _scheduleRegisterTasks(tasks);
         if (tasks.isEmpty) {
+          final windowDays = TaskApiClient.planWindowDays;
+          final currentWindowStart =
+              (widget.dayIndex ~/ windowDays) * windowDays;
+          final canGenerate = widget.currentDayIndex >= currentWindowStart;
           return TaskSectionShell(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 TaskSectionHeader(dayIndex: widget.dayIndex),
                 const SizedBox(height: 12),
-                Text(
-                  'No tasks generated for this day yet.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 40,
-                  child: ElevatedButton(
-                    onPressed: _isRegenerating ? null : _handleGenerateTasks,
-                    child: _isRegenerating
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Generate Tasks'),
+                if (canGenerate) ...[
+                  Text(
+                    'No tasks generated for this day yet.',
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 40,
+                    child: ElevatedButton(
+                      onPressed: _isRegenerating ? null : _handleGenerateTasks,
+                      child: _isRegenerating
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Generate Tasks'),
+                    ),
+                  ),
+                ] else ...[
+                  Text(
+                    'Tasks for this window unlock on day '
+                    '${currentWindowStart + 1}.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
               ],
             ),
           );
@@ -277,23 +357,26 @@ class _TaskSectionState extends State<TaskSection> {
     );
   }
 
-  void _registerTasks(List<DailyTask> tasks) {
+  void _scheduleRegisterTasks(List<DailyTask> tasks) {
     if (tasks.isEmpty) return;
-    final keys = <String>[];
-    final completed = <String>{};
-    for (var i = 0; i < tasks.length; i++) {
-      final key = _taskKey(tasks[i], i);
-      keys.add(key);
-      if (tasks[i].completedAt != null) {
-        completed.add(key);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final keys = <String>[];
+      final completed = <String>{};
+      for (var i = 0; i < tasks.length; i++) {
+        final key = _taskKey(tasks[i], i);
+        keys.add(key);
+        if (tasks[i].completedAt != null) {
+          completed.add(key);
+        }
       }
-    }
-    _progressStore.registerTasksForDay(
-      goalId: widget.goalId,
-      dayIndex: widget.dayIndex,
-      taskKeys: keys,
-      completedKeys: completed,
-    );
+      _progressStore.registerTasksForDay(
+        goalId: widget.goalId,
+        dayIndex: widget.dayIndex,
+        taskKeys: keys,
+        completedKeys: completed,
+      );
+    });
   }
 
   String _taskKey(DailyTask task, int index) {

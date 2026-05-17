@@ -54,7 +54,7 @@ class TaskPlanDay(BaseModel):
 
 
 class TaskPlanResult(BaseModel):
-    """Full payload stored into ai_plans.plan_json."""
+    """Generated payload used to populate daily tasks."""
 
     goal_id: str = Field(..., description="Supabase goals.id.")
     plan_id: str = Field(..., description="Supabase ai_plans.id.")
@@ -171,4 +171,19 @@ class TasksForDayResponse(BaseModel):
     tasks: List[DailyTaskPayload] = Field(
         default_factory=list,
         description="Ordered list of user-facing tasks.",
+    )
+
+
+class TaskPlanGenerationResult(BaseModel):
+    """Lightweight response for task-plan window generation."""
+
+    goal_id: str = Field(..., description="Supabase goals.id.")
+    plan_id: str = Field(..., description="Supabase ai_plans.id.")
+    window_start_day_index: int = Field(..., ge=0, description="Start of the window.")
+    window_end_day_index: int = Field(..., ge=0, description="End of the window.")
+    days_generated: int = Field(
+        ..., ge=0, description="Number of day entries inserted into tasks."
+    )
+    generated: bool = Field(
+        ..., description="True if at least one day was inserted."
     )

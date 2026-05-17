@@ -81,6 +81,7 @@ TASK_PLANNER_SYSTEM_PROMPT = (
     "- Each day must include 1-3 actionable tasks with durations between 5 and 60 minutes.\n"
     "- Ensure total daily effort stays within the provided daily_time_commitment_minutes.\n"
     "- NEVER modify plan_summary; keep it identical in the output summary field.\n"
+    "- Tasks must progress logically day-to-day; avoid random jumps or repetition.\n"
     "- Always produce short, clear, user-friendly task descriptions."
 )
 
@@ -211,24 +212,75 @@ class LlmClient:
             raise LlmClientError("Task plan payload is invalid.") from error
 
     def _extract_json_payload(self, raw_content: str) -> dict:
-        """Extracts JSON even if the LLM wrapped it with prose."""
+        """Extracts JSON even if the LLM wrapped it with prose or fences."""
+        if not raw_content:
+            raise LlmClientError("LLM response did not contain valid JSON.")
         try:
             return json.loads(raw_content)
         except json.JSONDecodeError:
             pass
-        match = re.search(r"\{.*\}", raw_content, re.DOTALL)
-        if match:
-            snippet = match.group(0)
+
+        for candidate in self._extract_fenced_payloads(raw_content):
             try:
-                return json.loads(snippet)
+                return json.loads(candidate)
             except json.JSONDecodeError:
-                pass
+                continue
+
+        for candidate in self._extract_json_objects(raw_content):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+
         raise LlmClientError("LLM response did not contain valid JSON.")
+
+    def _extract_fenced_payloads(self, raw_content: str) -> List[str]:
+        matches = re.finditer(
+            r"```(?:json)?\s*(.*?)\s*```",
+            raw_content,
+            re.DOTALL | re.IGNORECASE,
+        )
+        return [match.group(1).strip() for match in matches]
+
+    def _extract_json_objects(self, raw_content: str) -> List[str]:
+        payloads: List[str] = []
+        depth = 0
+        start_index: Optional[int] = None
+        in_string = False
+        escape = False
+        for index, char in enumerate(raw_content):
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+                continue
+
+            if char == "{":
+                if depth == 0:
+                    start_index = index
+                depth += 1
+            elif char == "}":
+                if depth == 0:
+                    continue
+                depth -= 1
+                if depth == 0 and start_index is not None:
+                    payloads.append(raw_content[start_index : index + 1])
+                    start_index = None
+        return payloads
 
     def _normalize_task_plan_payload(self, payload: dict) -> dict:
         """Clamps task durations so Pydantic validation cannot fail."""
         if not isinstance(payload, dict):
             return payload
+        if "version" not in payload:
+            payload = {**payload, "version": 1}
         days = payload.get("days")
         if not isinstance(days, list):
             return payload

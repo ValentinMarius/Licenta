@@ -3,7 +3,6 @@
 // Exists so UI widgets only depend on a tiny fetcher instead of raw http calls.
 // RELEVANT FILES:lib/app/features/tasks/models/daily_task.dart,lib/app/features/tasks/presentation/widgets/task_section.dart,lib/app/features/home/presentation/screens/journey_goal_tab.dart
 
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -32,6 +31,9 @@ class TaskApiClient {
 
   final String _baseUrl;
   final http.Client _client;
+
+  static const int planWindowDays = 14;
+  static const int prefetchLeadDays = 3;
 
   bool get isConfigured => _baseUrl.isNotEmpty;
 
@@ -63,20 +65,6 @@ class TaskApiClient {
     await prefs.setString(_tasksCacheKey(goalId, dayIndex), body);
   }
 
-  Future<void> _refreshTasks(String goalId, int dayIndex) async {
-    try {
-      final uri = _tasksUri(goalId, dayIndex);
-      final response = await _client
-          .get(uri)
-          .timeout(const Duration(seconds: 8));
-      if (response.statusCode == 200) {
-        await _writeCachedTasks(goalId, dayIndex, response.body);
-      }
-    } catch (error) {
-      debugPrint('TaskApiClient.refreshTasks failed: $error');
-    }
-  }
-
   Uri _buildUri(String path) {
     final normalized = _baseUrl.endsWith('/')
         ? _baseUrl.substring(0, _baseUrl.length - 1)
@@ -92,6 +80,22 @@ class TaskApiClient {
 
   Uri _taskPlanUri(String goalId) {
     return _buildUri('/v1/goals/$goalId/task_plan');
+  }
+
+  Uri _taskPlanUriWithParams(
+    String goalId, {
+    int? startDayIndex,
+    int? windowDays,
+  }) {
+    final uri = _taskPlanUri(goalId);
+    final params = <String, String>{};
+    if (startDayIndex != null) {
+      params['start_day_index'] = startDayIndex.toString();
+    }
+    if (windowDays != null) {
+      params['window_days'] = windowDays.toString();
+    }
+    return params.isEmpty ? uri : uri.replace(queryParameters: params);
   }
 
   String _errorMessageFromResponse(http.Response response, String fallback) {
@@ -127,7 +131,6 @@ class TaskApiClient {
     }
     final cached = await _readCachedTasks(goalId, dayIndex);
     if (cached != null) {
-      unawaited(_refreshTasks(goalId, dayIndex));
       return cached;
     }
     final uri = _tasksUri(goalId, dayIndex);
@@ -156,16 +159,24 @@ class TaskApiClient {
     }
   }
 
-  Future<void> generateTaskPlan({required String goalId}) async {
+  Future<void> generateTaskPlan({
+    required String goalId,
+    int? startDayIndex,
+    int? windowDays,
+  }) async {
     if (!isConfigured) {
       throw const TaskApiException(
         'API base URL missing. Provide API_BASE_URL via --dart-define.',
       );
     }
-    final uri = _taskPlanUri(goalId);
+    final uri = _taskPlanUriWithParams(
+      goalId,
+      startDayIndex: startDayIndex,
+      windowDays: windowDays,
+    );
     final response = await _client
         .post(uri)
-        .timeout(const Duration(seconds: 8));
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       final message = _errorMessageFromResponse(
         response,

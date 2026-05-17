@@ -21,6 +21,8 @@ from .plan_tasks_service import PlanTasksService
 
 ALLOWED_LANGUAGES = {"en", "es", "zh", "hi", "ar", "ro"}
 DEFAULT_PLAN_DURATION_DAYS = 30
+DEFAULT_TASK_WINDOW_DAYS = 14
+TASK_GENERATION_MODE = "windowed"
 logger = logging.getLogger(__name__)
 
 
@@ -283,6 +285,9 @@ class PlanSummaryService:
             "overview": summary.overview,
             "estimated_duration_days": summary.estimated_duration_days,
             "phases": [phase.dict() for phase in summary.phases],
+            "task_generation_mode": TASK_GENERATION_MODE,
+            "tasks_window_days": DEFAULT_TASK_WINDOW_DAYS,
+            "tasks_generated_until_day_index": -1,
         }
         if daily_time_commitment_minutes is not None:
             payload["daily_time_commitment_minutes"] = daily_time_commitment_minutes

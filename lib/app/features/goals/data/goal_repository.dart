@@ -3,7 +3,6 @@
 // Keeps storage and formatting concerns separate from the UI widgets.
 // RELEVANT FILES:lib/app/features/goals/domain/goal_composer.dart,lib/app/features/onboarding/data/onboarding_storage.dart,lib/app/features/home/root/main_tab_shell.dart,lib/app/features/goals/domain/plan_summary.dart
 
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -75,17 +74,6 @@ class GoalRepository {
   Future<void> _writeCachedPlanSummary(String goalId, String body) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_planSummaryCacheKey(goalId), body);
-  }
-
-  Future<void> _refreshPlanSummary(String goalId, Uri uri) async {
-    try {
-      final response = await http.get(uri).timeout(const Duration(seconds: 8));
-      if (response.statusCode == 200) {
-        await _writeCachedPlanSummary(goalId, response.body);
-      }
-    } catch (error) {
-      debugPrint('GoalRepository.refreshPlanSummary failed: $error');
-    }
   }
 
   Future<String> createGoal({
@@ -287,9 +275,6 @@ class GoalRepository {
           .select('id,title,created_at')
           .eq('user_id', userId)
           .order('created_at', ascending: false);
-      if (response is! List) {
-        return const [];
-      }
       return response
           .whereType<Map<String, dynamic>>()
           .map(GoalSummary.fromMap)
@@ -317,9 +302,6 @@ class GoalRepository {
           .select('start_date,target_date,completed_at')
           .eq('user_id', userId)
           .not('completed_at', 'is', null);
-      if (response is! List) {
-        return GoalCompletionStats.empty;
-      }
 
       var total = 0;
       var in7 = 0;
@@ -401,11 +383,10 @@ class GoalRepository {
     final uri = Uri.parse('$normalizedBaseUrl/v1/goals/$goalId/plan/summary');
     final cached = await _readCachedPlanSummary(goalId);
     if (cached != null) {
-      unawaited(_refreshPlanSummary(goalId, uri));
       return cached;
     }
     try {
-      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      final response = await http.get(uri).timeout(const Duration(seconds: 20));
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         await _writeCachedPlanSummary(goalId, response.body);
