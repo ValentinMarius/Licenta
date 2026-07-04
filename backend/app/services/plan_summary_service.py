@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -17,12 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas.plan_summary import PlanPhase, PlanSummary
 from .llm_client import LlmClient, LlmClientError, PlanSummaryPrompt
-from .plan_tasks_service import PlanTasksService
 
 ALLOWED_LANGUAGES = {"en", "es", "zh", "hi", "ar", "ro"}
 DEFAULT_PLAN_DURATION_DAYS = 30
 DEFAULT_TASK_WINDOW_DAYS = 14
 TASK_GENERATION_MODE = "windowed"
+SUMMARY_LLM_TIMEOUT_SECONDS = 18
 logger = logging.getLogger(__name__)
 
 
@@ -50,14 +51,17 @@ class PlanSummaryService:
             language=language or "en",
         )
         try:
-            llm_result = await self._llm_client.generate_plan_summary(prompt)
+            llm_result = await asyncio.wait_for(
+                self._llm_client.generate_plan_summary(prompt),
+                timeout=SUMMARY_LLM_TIMEOUT_SECONDS,
+            )
             summary = PlanSummary(
                 goal_id=goal_id,
                 overview=llm_result.overview,
                 phases=[PlanPhase(**phase.dict()) for phase in llm_result.phases],
                 estimated_duration_days=llm_result.estimated_duration_days,
             )
-        except LlmClientError as error:
+        except (asyncio.TimeoutError, LlmClientError) as error:
             logger.warning(
                 "Plan summary LLM failure for goal %s; falling back: %s",
                 goal_id,
@@ -91,7 +95,6 @@ class PlanSummaryService:
             target_date=target_date,
             daily_time_commitment_minutes=daily_time_minutes,
         )
-        await self._generate_task_plan(goal_id)
         return summary
 
     async def _fetch_goal(self, goal_id: str) -> dict:
@@ -346,14 +349,6 @@ class PlanSummaryService:
             phases=phases,
             estimated_duration_days=payload.get("estimated_duration_days"),
         )
-
-    async def _generate_task_plan(self, goal_id: str) -> None:
-        """Ensures the freshly generated summary also has daily tasks."""
-        service = PlanTasksService(llm_client=self._llm_client, db_session=self._db_session)
-        try:
-            await service.generate_task_plan_for_goal(goal_id)
-        except Exception as error:  # pragma: no cover - best-effort logging
-            logger.warning("Task plan generation failed for goal %s: %s", goal_id, error)
 
     def _coerce_date(self, value: Any) -> Optional[date]:
         if value is None:

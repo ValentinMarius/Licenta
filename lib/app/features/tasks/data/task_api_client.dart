@@ -3,6 +3,7 @@
 // Exists so UI widgets only depend on a tiny fetcher instead of raw http calls.
 // RELEVANT FILES:lib/app/features/tasks/models/daily_task.dart,lib/app/features/tasks/presentation/widgets/task_section.dart,lib/app/features/home/presentation/screens/journey_goal_tab.dart
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -137,7 +138,7 @@ class TaskApiClient {
     try {
       final response = await _client
           .get(uri)
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 20));
       if (response.statusCode != 200) {
         if (response.statusCode == 404) {
           throw const TaskPlanPendingException(
@@ -153,6 +154,10 @@ class TaskApiClient {
       await _writeCachedTasks(goalId, dayIndex, response.body);
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
       return TasksForDayResponse.fromJson(payload);
+    } on TimeoutException catch (_) {
+      throw const TaskPlanPendingException(
+        'Tasks are still loading for this day. Please try again in a moment.',
+      );
     } catch (error) {
       debugPrint('TaskApiClient.fetchTasksForDay failed: $error');
       rethrow;
@@ -176,7 +181,7 @@ class TaskApiClient {
     );
     final response = await _client
         .post(uri)
-        .timeout(const Duration(seconds: 30));
+        .timeout(const Duration(seconds: 100));
     if (response.statusCode != 200) {
       final message = _errorMessageFromResponse(
         response,

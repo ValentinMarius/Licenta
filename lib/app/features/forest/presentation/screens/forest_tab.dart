@@ -417,7 +417,7 @@ class _ForestTabState extends State<ForestTab> {
                           });
                         },
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Lasă AI să decidă pentru tine'),
+                        title: const Text('Let AI decide for you'),
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
                       const SizedBox(height: 12),
@@ -452,7 +452,7 @@ class _ForestTabState extends State<ForestTab> {
                           });
                         },
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Lasă AI să decidă pentru tine'),
+                        title: const Text('Let AI decide for you'),
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
                     ],
@@ -508,6 +508,15 @@ class _ForestTabState extends State<ForestTab> {
     required String description,
     required String startDateIso,
   }) async {
+    final validationMessage = GoalRepository.validateGoalInput(description);
+    if (validationMessage != null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(validationMessage)));
+      return;
+    }
+
     setState(() {
       _creatingGoal = true;
     });

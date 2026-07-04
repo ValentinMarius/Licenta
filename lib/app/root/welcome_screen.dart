@@ -92,7 +92,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                             );
                           },
                           child: Image.asset(
-                            'assets/Treespora_logo_transparent.png',
+                            'assets/logolighttrans.png',
                             height: 300,
                           ),
                         ),

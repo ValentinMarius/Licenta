@@ -11,12 +11,6 @@ from .api import plans, task_plans
 from .core.settings import get_settings
 
 settings = get_settings()
-print("=== DB URL USED BY BACKEND ===")
-print(settings.database_url)
-print("================================")
-
-
-
 
 app = FastAPI(
     title=settings.app_name,

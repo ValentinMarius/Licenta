@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import date, datetime, timedelta
@@ -15,16 +16,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas.plan_tasks import (
     TaskPlanPrompt,
+    TaskPlanDay,
     TaskPlanGenerationResult,
     TaskPlanResult,
+    TaskPlanTask,
     TasksForDayResponse,
 )
-from .llm_client import LlmClient
+from .llm_client import LlmClient, LlmClientError
 
 ALLOWED_LANGUAGES = {"en", "es", "zh", "hi", "ar", "ro"}
 DEFAULT_PLAN_DURATION_DAYS = 30
 PLAN_WINDOW_DAYS = 14
 TASK_GENERATION_MODE = "windowed"
+TASK_PLAN_LLM_TIMEOUT_SECONDS = 35
 logger = logging.getLogger(__name__)
 
 
@@ -155,7 +159,18 @@ class PlanTasksService:
                     "estimated_duration_days": window_size,
                 },
             )
-            task_plan_raw = await self._llm_client.generate_task_plan(window_prompt)
+            try:
+                task_plan_raw = await asyncio.wait_for(
+                    self._llm_client.generate_task_plan(window_prompt),
+                    timeout=TASK_PLAN_LLM_TIMEOUT_SECONDS,
+                )
+            except (asyncio.TimeoutError, LlmClientError) as error:
+                logger.warning(
+                    "Task plan LLM failure for goal %s; using fallback tasks: %s",
+                    goal_id,
+                    error,
+                )
+                task_plan_raw = self._fallback_task_plan(window_prompt)
             task_plan = self._normalize_task_plan(
                 task_plan_raw,
                 expected_days=window_size,
@@ -189,6 +204,59 @@ class PlanTasksService:
         except Exception:
             logger.exception("Task plan generation crashed for goal %s", goal_id)
             raise
+
+    def _fallback_task_plan(self, prompt: TaskPlanPrompt) -> TaskPlanResult:
+        """Builds a simple valid task window when the LLM is unavailable."""
+        total_days = max((prompt.target_date - prompt.start_date).days + 1, 1)
+        daily_budget = max(5, min(prompt.daily_time_commitment_minutes or 30, 300))
+        first_task_minutes = min(30, max(5, daily_budget // 2))
+        second_task_minutes = min(30, max(5, daily_budget - first_task_minutes))
+        use_two_tasks = daily_budget >= 20
+        language = (prompt.user_language or "").lower()
+        goal_title = (prompt.goal_title or "your goal").strip()
+        if language == "ro":
+            focus_prefix = "Pas practic"
+            task_one_template = "Lucreaza la obiectivul: {goal}"
+            task_two_template = "Noteaza progresul si urmatorul pas"
+        else:
+            focus_prefix = "Practical step"
+            task_one_template = "Work on goal: {goal}"
+            task_two_template = "Review progress and choose the next step"
+
+        days = []
+        for index in range(total_days):
+            tasks = [
+                TaskPlanTask(
+                    description=task_one_template.format(goal=goal_title),
+                    estimated_minutes=first_task_minutes,
+                )
+            ]
+            if use_two_tasks:
+                tasks.append(
+                    TaskPlanTask(
+                        description=task_two_template,
+                        estimated_minutes=second_task_minutes,
+                    )
+                )
+            days.append(
+                TaskPlanDay(
+                    day_index=index,
+                    label=f"Day {index + 1}",
+                    focus=f"{focus_prefix} {index + 1}",
+                    tasks=tasks,
+                )
+            )
+
+        return TaskPlanResult(
+            goal_id=prompt.goal_id,
+            plan_id=prompt.plan_id,
+            version=1,
+            summary=prompt.plan_summary,
+            time_horizon_days=total_days,
+            daily_time_commitment_minutes=daily_budget,
+            start_date=prompt.start_date,
+            days=days,
+        )
 
     async def _fetch_goal(self, goal_id: str) -> Dict[str, Any]:
         query = text(

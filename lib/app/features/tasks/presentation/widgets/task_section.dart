@@ -45,6 +45,7 @@ class _TaskSectionState extends State<TaskSection> {
   Future<List<DailyTask>>? _tasksFuture;
   bool _isRegenerating = false;
   final Set<int> _autoGeneratingStarts = <int>{};
+  final Set<int> _autoGenerationFailedStarts = <int>{};
 
   @override
   void initState() {
@@ -128,6 +129,52 @@ class _TaskSectionState extends State<TaskSection> {
     }
   }
 
+  void _scheduleAutoGenerateCurrentWindow() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_maybeAutoGenerateCurrentWindow());
+    });
+  }
+
+  Future<void> _maybeAutoGenerateCurrentWindow() async {
+    final client = widget.apiClient;
+    if (client == null || !client.isConfigured) return;
+
+    final windowDays = TaskApiClient.planWindowDays;
+    final startDayIndex = (widget.dayIndex ~/ windowDays) * windowDays;
+    if (widget.currentDayIndex < startDayIndex) return;
+    if (_autoGeneratingStarts.contains(startDayIndex)) return;
+    if (_autoGenerationFailedStarts.contains(startDayIndex)) return;
+
+    final boundedWindowDays = (startDayIndex + windowDays) > widget.totalDays
+        ? (widget.totalDays - startDayIndex).clamp(1, windowDays)
+        : windowDays;
+
+    setState(() {
+      _autoGeneratingStarts.add(startDayIndex);
+    });
+    try {
+      await client.generateTaskPlan(
+        goalId: widget.goalId,
+        startDayIndex: startDayIndex,
+        windowDays: boundedWindowDays,
+      );
+      if (!mounted) return;
+      setState(() {
+        _autoGeneratingStarts.remove(startDayIndex);
+        _autoGenerationFailedStarts.remove(startDayIndex);
+      });
+      _reloadTasks();
+    } catch (error) {
+      debugPrint('TaskSection.autoGenerateCurrentWindow failed: $error');
+      if (!mounted) return;
+      setState(() {
+        _autoGeneratingStarts.remove(startDayIndex);
+        _autoGenerationFailedStarts.add(startDayIndex);
+      });
+    }
+  }
+
   Future<void> _handleGenerateTasks() async {
     final client = widget.apiClient;
     if (client == null || !client.isConfigured || _isRegenerating) return;
@@ -151,6 +198,7 @@ class _TaskSectionState extends State<TaskSection> {
         startDayIndex: startDayIndex,
         windowDays: boundedWindowDays,
       );
+      _autoGenerationFailedStarts.remove(startDayIndex);
       _showSnackBar('Tasks generated successfully.');
       _reloadTasks();
     } catch (error) {
@@ -208,11 +256,11 @@ class _TaskSectionState extends State<TaskSection> {
 
         if (snapshot.hasError) {
           final error = snapshot.error;
-          debugPrint('TaskSection.loadTasks failed: $error');
           if (error is TaskPlanPendingException) {
             final windowDays = TaskApiClient.planWindowDays;
             final currentWindowStart =
                 (widget.dayIndex ~/ windowDays) * windowDays;
+            _scheduleAutoGenerateCurrentWindow();
             final isWindowGenerating =
                 _isRegenerating ||
                 _autoGeneratingStarts.contains(currentWindowStart);
@@ -251,6 +299,8 @@ class _TaskSectionState extends State<TaskSection> {
               ),
             );
           }
+
+          debugPrint('TaskSection.loadTasks failed: $error');
           return TaskSectionShell(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

@@ -92,10 +92,9 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
   assets:
-    - assets/logo.png
     - assets/apple.png
     - assets/facebook.png
-    - assets/Treespora_logo_transparent.png
+    - assets/logolighttrans.png
     - assets/appleB.png
     - lib/app/features/home/presentation/widgets/image.png
     - lib/app/features/home/presentation/widgets/image-1.png

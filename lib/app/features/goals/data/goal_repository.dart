@@ -38,6 +38,24 @@ class GoalFetchException implements Exception {
 class GoalRepository {
   GoalRepository._(this._client);
 
+  static const String _invalidGoalMessage =
+      'Nu se poate genera un plan pentru obiectivul ales deoarece nu respecta termenii si conditiile.';
+
+  static final List<RegExp> _invalidGoalPatterns = [
+    RegExp(
+      r'\b(reteta|rețeta|recipe|gluma|glum[aă]|joke|poanta|poant[aă])\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'\b(how\s+to\s+bury|how\s+to\s+cook|cum\s+sa\s+ingrop|cum\s+sa\s+gat(e|i)sti)\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'\b(ingropa\s+o\s+g(ai|a)na|bury\s+(a\s+)?chicken)\b',
+      caseSensitive: false,
+    ),
+  ];
+
   final SupabaseClient? _client;
 
   static GoalRepository? _instance;
@@ -76,10 +94,31 @@ class GoalRepository {
     await prefs.setString(_planSummaryCacheKey(goalId), body);
   }
 
+  static String? validateGoalInput(String userInput) {
+    final trimmed = userInput.trim();
+    if (trimmed.length < 6) {
+      return _invalidGoalMessage;
+    }
+
+    final normalized = trimmed.toLowerCase();
+    for (final pattern in _invalidGoalPatterns) {
+      if (pattern.hasMatch(normalized)) {
+        return _invalidGoalMessage;
+      }
+    }
+
+    return null;
+  }
+
   Future<String> createGoal({
     required String userInput,
     required String startDateIso,
   }) async {
+    final validationMessage = validateGoalInput(userInput);
+    if (validationMessage != null) {
+      throw GoalCreationException(validationMessage);
+    }
+
     final supabase = _client;
     if (supabase == null) {
       throw const GoalCreationException('Please try again later.');
@@ -386,7 +425,7 @@ class GoalRepository {
       return cached;
     }
     try {
-      final response = await http.get(uri).timeout(const Duration(seconds: 20));
+      final response = await http.get(uri).timeout(const Duration(seconds: 60));
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         await _writeCachedPlanSummary(goalId, response.body);
